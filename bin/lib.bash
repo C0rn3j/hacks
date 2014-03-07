@@ -50,7 +50,11 @@ print_fmsg() {
 	if (( progname_prefix > 0 || ( progname_prefix < 0 && _lvl ) )); then
 		nprefix="$progname: "
 	fi
-	printf "%s${color}%s${reset} %s\n" "$nprefix" "$fprefix" "$msg"
+	if (( progname_prefix == 2 )) && [[ $level == log* ]]; then
+		printf "%s%s\n" "$nprefix" "$msg"
+	else
+		printf "%s${color}%s${reset} %s\n" "$nprefix" "$fprefix" "$msg"
+	fi
 }
 
 debug() {
