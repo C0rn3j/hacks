@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-set -e
 
-log()  { echo "dist/prepare: $*" >&2; }
-warn() { log "warning: $*"; }
-die()  { log "error: $*"; exit 1; }
+. lib.bash || exit
+
+progname='dist/prepare'
+progname_prefix=2
 
 usage() {
 	echo "Usage: dist/prepare {-D|-O|-d|-h|-m|-o|-v}"
@@ -23,6 +23,8 @@ usage() {
 	echo "  dist  \"dist.\$HOSTTYPE-\$(uname)-\$DIST\""
 	echo "  host  \"host.\$(hostname)\""
 }
+
+set -e
 
 test "$MAKELEVEL" ||
 	cd ~/code
