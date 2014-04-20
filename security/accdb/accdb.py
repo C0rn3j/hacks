@@ -194,55 +194,118 @@ def start_editor(path):
 class FilterSyntaxError(Exception):
     pass
 
-def split_filter(text):
-    tokens = []
-    depth = 0
-    start = -1
-    for pos, char in enumerate(text):
-        if char == "(":
-            if depth == 0:
-                if start >= 0:
-                    tokens.append(text[start:pos])
-                start = pos+1
-            depth += 1
-        elif char == ")":
-            depth -= 1
-            if depth == 0 and start >= 0:
-                tokens.append(text[start:pos])
-                start = -1
-        elif char == " ":
-            if depth == 0 and start >= 0:
-                tokens.append(text[start:pos])
-                start = -1
+class FilterParser(object):
+    def __init__(self, text):
+        self.buf = text
+        self.pos = 0
+        self.char = self.buf[0]
+
+    WHITESPACE = " " "\t" "\n"
+
+    def next(self):
+        return self.scan()
+
+    def advance(self):
+        self.pos += 1
+        if self.pos < len(self.buf):
+            self.char = self.buf[self.pos]
         else:
-            if start < 0:
-                start = pos
-    if depth == 0:
-        if start >= 0:
-            tokens.append(text[start:])
-        return tokens
-    elif depth > 0:
-        raise FilterSyntaxError("unclosed '(' (depth %d)" % depth)
-    elif depth < 0:
-        raise FilterSyntaxError("too many ')'s (depth %d)" % depth)
+            self.char = None
+
+    def advance_if(self, char):
+        if len(char) != 1:
+            raise ValueError("only single characters allowed")
+        elif not self.char:
+            raise IOError("EOF found where %r expected" % char)
+        elif self.char == char:
+            self.advance()
+        else:
+            raise IOError("char %r found where %r expected" % (self.char, char))
+
+    def scan(self):
+        self.skip_whitespace()
+        if self.char is None:
+            return None
+        elif self.char == "(":
+            return self.scan_list()
+        elif self.char == "\"":
+            return self.scan_quoted_str()
+        else:
+            return self.scan_str()
+
+    def scan_list(self):
+        self.advance_if("(")
+        out = []
+        while True:
+            self.skip_whitespace()
+            if self.char is None:
+                raise FilterSyntaxError("missing closing ')'")
+            elif self.char == ")":
+                break
+            else:
+                out.append(self.scan())
+        self.advance_if(")")
+        return out
+
+    def scan_str(self):
+        out = ""
+        while True:
+            if self.char is None:
+                break
+            elif self.char in self.WHITESPACE + ")":
+                break
+            else:
+                out += self.char
+                self.advance()
+        return out
+
+    def scan_quoted_str(self):
+        self.advance_if("\"")
+        out = ""
+        while True:
+            if self.char is None:
+                raise ValueError("quoted string is missing closing quote at %r" % out)
+            elif self.char == "\"":
+                self.advance()
+                break
+            else:
+                out += self.char
+            self.advance()
+        return out
+
+    def skip_whitespace(self):
+        while True:
+            if self.char is None:
+                break
+            elif self.char in self.WHITESPACE:
+                self.advance()
+            else:
+                break
 
 def compile_filter(pattern):
-    tokens = split_filter(pattern)
+    tokens = FilterParser(pattern).scan()
+
     if debug:
         trace("parsing filter %r -> %r" % (pattern, tokens))
 
-    if len(tokens) > 1:
+    return compile_onelevel(tokens)
+
+def compile_onelevel(tokens):
+    if debug:
+        trace("compiling filter %r" % tokens)
+
+    if type(tokens) is list:
         # boolean operators
         if tokens[0] in {"AND", "and"}:
-            filters = [compile_filter(x) for x in tokens[1:]]
+            filters = [compile_onelevel(x) for x in tokens[1:]]
             return ConjunctionFilter(*filters)
         elif tokens[0] in {"OR", "or"}:
-            filters = [compile_filter(x) for x in tokens[1:]]
+            filters = [compile_onelevel(x) for x in tokens[1:]]
             return DisjunctionFilter(*filters)
         elif tokens[0] in {"NOT", "not"}:
             if len(tokens) > 2:
                 raise FilterSyntaxError("too many arguments for 'NOT'")
-            filter = compile_filter(tokens[1])
+            filter = compile_onelevel(tokens[1])
             return NegationFilter(filter)
         # search filters
         elif tokens[0] in {"ITEM", "item"}:
@@ -256,14 +319,12 @@ def compile_filter(pattern):
         # etc.
         else:
             raise FilterSyntaxError("unknown operator %r in (%s)" % (tokens[0], pattern))
-    elif " " in tokens[0] or "(" in tokens[0] or ")" in tokens[0]:
-        return compile_filter(tokens[0])
-    elif tokens[0].startswith("#"):
-        return ItemNumberFilter(tokens[0][1:])
-    elif tokens[0].startswith("{"):
-        return ItemUuidFilter(tokens[0])
+    elif tokens.startswith("#"):
+        return ItemNumberFilter(tokens[1:])
+    elif tokens.startswith("{"):
+        return ItemUuidFilter(tokens)
     else:
-        return PatternFilter(tokens[0])
+        return PatternFilter(tokens)
 
 def compile_pattern(pattern):
     if debug:
