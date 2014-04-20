@@ -317,6 +317,9 @@ class Filter(object):
     def __call__(self, entry):
         return bool(self.test(entry))
 
+    def is_indexed(self):
+        return hasattr(self, "get")
+
 class PatternFilter(Filter):
     def __init__(self, pattern):
         self.pattern = pattern
@@ -342,6 +345,9 @@ class ItemNumberFilter(Filter):
     def test(self, entry):
         return entry.itemno == self.value
 
+    def get(self, db):
+        return db.find_by_itemno(self.value)
+
     def __repr__(self):
         return "(ITEM %d)" % self.value
 
@@ -355,15 +361,31 @@ class ItemUuidFilter(Filter):
     def test(self, entry):
         return entry.uuid == self.value
 
+    def get(self, db):
+        return db[self.value]
+
     def __repr__(self):
         return "(UUID %s)" % self.value
 
 class ConjunctionFilter(Filter):
     def __init__(self, *filters):
         self.filters = list(filters)
+        self.indexed = [f for f in self.filters if f.is_indexed()]
 
     def test(self, entry):
-        return all(filter.test(entry) for filter in self.filters)
+        return all(f.test(entry) for f in self.filters)
+
+    def is_indexed(self):
+        return len(self.indexed) == len(self.filters)
+
+    def get(self, db):
+        f = self.indexed[0]
+        first_result = f.get(db)
+        for f in self.indexed[1:]:
+            this_result = f.get(db)
+            if this_result != first_result:
+                return None
+        return first_result
 
     def __repr__(self):
         return "(AND %s)" % " ".join(repr(f) for f in self.filters)
@@ -500,9 +522,16 @@ class Database(object):
         return entry
 
     def find(self, filter):
-        for entry in self:
-            if filter(entry):
+        if filter.is_indexed():
+            if debug:
+                trace("asking filter to get results from index")
+            entry = filter.get(self)
+            if entry:
                 yield entry
+        else:
+            for entry in self:
+                if filter(entry):
+                    yield entry
 
     # Aggregate lookup
 
