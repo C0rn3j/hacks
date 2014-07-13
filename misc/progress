@@ -1,7 +1,10 @@
 #!/usr/bin/env perl
 # progress - summarize line-based stdout to one dynamic progress line
+use feature qw(unicode_strings);
+use open qw(:std :utf8);
 use warnings;
 use strict;
+use Text::CharWidth qw(mbwidth mbswidth);
 
 $| = 1;
 
@@ -17,16 +20,27 @@ $SIG{INT} = sub {
 };
 
 while (++$count, my $str = <STDIN>) {
-	my ($now, $pre);
+	my ($now, $out, $len, $chr);
 
 	$now = time;
-	next if $now - $last < 1;
+	#next if $now - $last < 1;
 	$last = $now;
 
 	chomp($str);
-	$pre = sprintf("%d ", $count);
-	$str = substr($str, 0, $width - length($pre));
-	printf("\r\033[K%s%s\r", $pre, $str);
+	$out = sprintf("%d ", $count);
+	$len = length($out);
+	if ($len + mbswidth($str) > $width) {
+		while ($str ne "" && $len < $width) {
+			$chr = substr($str, 0, 1, "");
+			$len += mbwidth($chr);
+			last if $len > $width;
+			$out .= $chr;
+		}
+	} else {
+		$out .= $str;
+	}
+	printf("\r\033[K%s\r", $out);
+	sleep 1;
 }
 
 printf("\r\033[K%s\n", "$count items");
