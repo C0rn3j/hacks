@@ -103,8 +103,9 @@ sub fetch_all_favourites {
 	# start with latest
 	# repeat with max_id = lowest id from previous fetch
 
+	my ($seen) = @_;
+
 	my @tweets;
-	my %seen;
 	my $next_max_id;
 
 	_log("downloading all favorites (latest to oldest)");
@@ -137,7 +138,8 @@ sub fetch_all_favourites {
 		_info("  oldest: $min_id");
 
 		# timeline is sorted newest → oldest
-		my @new = grep {!$seen{$_->{id_str}}++} @$timeline;
+		my @new = grep {!$seen->{$_->{id_str}}++} @$timeline;
+		_info("  unseen: ".scalar(@new));
 		last if !@new;
 		push @tweets, @new;
 
@@ -196,6 +198,13 @@ if ($mode eq '-t') {
 	}
 	store_tweets($tweets);
 } elsif ($mode eq '-f') {
-	$tweets = fetch_all_favourites();
+	$tweets = load_tweets("favs");
+	if (defined $tweets) {
+		my %seen = map {$_->{id_str} => 1} @$tweets;
+		my $new = fetch_all_favourites(\%seen);
+		push @$tweets, @$new;
+	} else {
+		$tweets = fetch_all_favourites();
+	}
 	store_tweets($tweets, "favs");
 }
