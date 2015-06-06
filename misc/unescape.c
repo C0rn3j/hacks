@@ -29,6 +29,7 @@ const char escapes[256] = {
 
 bool keep_backslash = false;
 bool warn_bad_escapes = true;
+bool url_decode = false;
 
 static int htoi(char ch) {
 	switch (ch) {
@@ -72,9 +73,15 @@ static void process(FILE *fp, char *fn) {
 	while ((ch = getc(fp)) != EOF && ++pos) {
 		switch (state) {
 		case None:
-			if (ch == '\\')
+			if (ch == '\\' && !url_decode)
 				state = Escape;
-			else
+			else if (ch == '%' && url_decode) {
+				acc = 0;
+				len = 0;
+				letter = ch;
+				maxlen = 2;
+				state = HexEscape;
+			} else
 				putchar(ch);
 			break;
 		case Escape:
@@ -194,7 +201,7 @@ int main(int argc, char *argv[]) {
 	char *fn;
 	FILE *fp;
 
-	while ((opt = getopt(argc, argv, "a:bq")) != -1) {
+	while ((opt = getopt(argc, argv, "a:bqu")) != -1) {
 		switch (opt) {
 		case 'a':
 			data = optarg;
@@ -204,6 +211,9 @@ int main(int argc, char *argv[]) {
 			break;
 		case 'q':
 			warn_bad_escapes = false;
+			break;
+		case 'u':
+			url_decode = true;
 			break;
 		default:
 			return usage();
