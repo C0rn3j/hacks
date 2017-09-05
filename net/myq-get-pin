@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 from collections import namedtuple
 import fdb
 from hashlib import md5
+import json
 import os
 from nullroute.core import *
 import nullroute.sec
@@ -52,6 +53,31 @@ class MyQDatabase(object):
         for row in cur:
             yield self.User(*row)
 
+def precompute_md5(digits=4):
+    Core.info("precomputing all hashes for %d-digit PINs", digits)
+    cache = {}
+    for i in range(10 ** digits):
+        pin = "%0*d" % (digits, i)
+        hash = md5(pin.encode()).hexdigest()
+        cache[hash.lower()] = pin
+    return cache
+
+def build_md5_cache():
+    global cache
+    cache = {}
+    for digits in [4, 5, 6]:
+        cache.update(precompute_md5(digits))
+    with open("/tmp/pin.json", "w") as fh:
+        json.dump(cache, fh)
+
+def lookup_md5(arg):
+    global cache
+    return None
+    if not cache:
+        with open("/tmp/pin.json", "r") as fh:
+            cache = json.load(fh)
+    return cache.get(arg.lower())
+
 def crack_md5(arg, digits=4):
     arg = arg.lower()
     for i in range(10 ** digits):
@@ -63,20 +89,30 @@ def crack_md5(arg, digits=4):
 
 def crack_pin(arg):
     Core.debug("cracking hash %r", arg)
-    for digits in [4, 5, 6]:
-        result = crack_md5(arg, digits)
-        if result:
-            break
+    result = lookup_md5(arg)
+    if result:
+        Core.debug("found in precomputed cache")
+    else:
+        Core.debug("not found in cache, cracking")
+        for digits in [4, 5, 6]:
+            result = crack_md5(arg, digits)
+            if result:
+                break
     return result
 
 host = "aqrate.utenos-kolegija.lt"
 db = None
+cache = None
 
 ap = ArgumentParser()
 ap.add_argument("--on-behalf-of")
 ap.add_argument("--raw", action="store_true")
+ap.add_argument("--precompute", action="store_true")
 ap.add_argument("query", nargs="*")
 opts = ap.parse_args()
+
+if opts.precompute:
+    build_md5_cache()
 
 for arg in opts.query[:]:
     if len(arg) == 32:
